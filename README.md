@@ -50,6 +50,7 @@ class OptimizerParams:
 @params
 class Params:
   name = 'default name'
+  tags = ['no', 'problem', 'with', 'list', 'here']
   optim = OptimizerParams()
   verbose = False
 
@@ -62,6 +63,7 @@ config['optim.weight_decay'] = 0  # we can set nested attributes like this as-we
 print(config)
 # prints: 
 # name='new name'
+# tags=['no', 'problem', 'with', 'list', 'here']
 # optim.learning_rate=0.001
 # optim.weight_decay=0
 # optim.batch_size=32
