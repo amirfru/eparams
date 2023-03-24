@@ -13,10 +13,26 @@ import typeguard
 from .constraints import Constraint
 
 if sys.version_info >= (3, 8):
-    from typing import get_origin
+    from typing import get_origin, get_args
 else:
     def get_origin(tp):
         return getattr(tp,'__origin__', None)
+    def get_args(tp):
+        return getattr(tp, '__args__', None)
+
+
+# typeguard had some non-backwards-compatible changes in V3.0
+import inspect
+check_type_sig = inspect.signature(typeguard.check_type)
+if 'argname' in check_type_sig.parameters:
+    check_type = typeguard.check_type
+else:
+    def check_type(argname, value, expected_type):
+        try:
+            typeguard.check_type(value, expected_type)
+        except Exception as e:
+            e.args = (' '.join([f'"{argname}"', *e.args]),)
+            raise e
 
 
 __all__ = ['params',
@@ -232,6 +248,25 @@ def _set_runtime_recursive(**kwargs) -> Callable[[Any], None]:
 
 def preprocess_fn(var: 'Var', value: Any):
     """Preprocess function before assignment."""
+    origin = get_origin(var.type)
+    if origin and origin in (tuple, list, dict):
+        try:
+            value = origin(value)
+        except (TypeError, ValueError):
+            return value
+        args = get_args(var.type)
+        if not args:
+            return value
+        if origin == tuple:
+            if len(args) == 2 and args[1] is Ellipsis:
+                args = [args[0]] * len(value)
+            elif len(args) < len(value):
+                args = list(args) + [args[-1]] * (len(value) - len(args))
+            return tuple(preprocess_fn(Var(tp=t), value=v) for v, t in zip(value, args))
+        elif origin == list:
+            return [preprocess_fn(Var(tp=args[0]), value=v) for v in value]
+        elif origin == dict:
+            return {preprocess_fn(Var(tp=args[0]), value=k): preprocess_fn(Var(tp=args[1]), value=v) for k, v in value.items()}
     if isinstance(var.type, enum.EnumMeta):
         return var.type(value)
     if var.type in (int, float, Path) and isinstance(value, str):
@@ -329,7 +364,7 @@ class Var:
                 raise ValueError(f'{self.name}={value}', *msgs)
         if not self.type_verify or self.type is MISSING:
             return
-        typeguard.check_type(self.name, value, self.type)
+        check_type(self.name, value, self.type)
 
     def preprocess(self, value: Any) -> Any:
         fn = self.preprocess_fn
